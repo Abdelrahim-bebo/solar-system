@@ -1,113 +1,120 @@
 name: Solar System Workflow
 
 on:
-    workflow_dispatch:
-    push:
-        branches:
-            - main
-            - "feature/*"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "feature/*"
 
 env:
-    MONGO_URI: "mongodb+srv://supercluster.d83jj.mongodb.net/superData"
-    MONGO_USERNAME: "superuser"
+  MONGO_URI: "mongodb+srv://supercluster.d83jj.mongodb.net/superData"
+  MONGO_USERNAME: "superuser"
 
 jobs:
-    unit-testing:
-        name: Unit Testing
-        strategy:
-            matrix:
-                nodejs_version: [18, 20]
-                operating_system: [ubuntu-latest]
-        runs-on: ${{matrix.operating_system}}
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v4
+  unit-testing:
+    name: Unit Testing
+    strategy:
+      matrix:
+        nodejs_version: [18, 20]
+        operating_system: [ubuntu-latest]
+    runs-on: ${{matrix.operating_system}}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-            - name: Setup NodeJS Version - ${{matrix.nodejs_version}}
-              uses: actions/setup-node@v3
-              with:
-                  node-version: ${{matrix.nodejs_version}}
+      - name: Setup NodeJS Version - ${{matrix.nodejs_version}}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{matrix.nodejs_version}}
 
-            - name: Install Dependencies
-              run: npm install
+      - name: Install Dependencies
+        run: npm install
 
-            - name: Unit Testing
-              id: nodejs-unit-testing
-              run: npm test
+      - name: Unit Testing
+        id: nodejs-unit-testing
+        run: npm test
 
-            - name: Archive Test Result
-              if: failure() && (steps.nodejs-unit-testing.outcome == 'failure' || steps.nodejs-unit-testing.outcome == 'success')
-              uses: actions/upload-artifact@v4
-              with:
-                  name: Mocha-Test-Result
-                  path: test-results.xml
+      - name: Archive Test Result
+        if: failure() && (steps.nodejs-unit-testing.outcome == 'failure' || steps.nodejs-unit-testing.outcome == 'success')
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mocha-Test-Result
+          path: test-results.xml
 
-    code-coverage:
-        name: Code Coverage
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v4
+  code-coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-            - name: Setup NodeJS Version - 18
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 18
+      - name: Setup NodeJS Version - 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
 
-            - name: Install Dependencies
-              run: npm install
+      - name: Install Dependencies
+        run: npm install
 
-            - name: Check Code Coverage
-              continue-on-error: true
-              run: npm run coverage
+      - name: Check Code Coverage
+        continue-on-error: true
+        run: npm run coverage
 
-            - name: Archive Test Result
-              uses: actions/upload-artifact@v4
-              with:
-                  name: Code-Coverage-Result
-                  path: coverage
-                  retention-days: 5
+      - name: Archive Test Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: Code-Coverage-Result
+          path: coverage
+          retention-days: 5
 
-    docker:
-        name: Containerization
-        needs: [unit-testing, code-coverage]
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Repo
-              uses: actions/checkout@v4
+  docker:
+    name: Containerization
+    needs: [unit-testing, code-coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-            - name: Dockerhub Login
-              uses: docker/login-action@v2.2.0
-              with:
-                  username: ${{vars.DOCKERHUB_USERNAME}}
-                  password: ${{secrets.DOCKERHUB_PASSWORD}}
+      - name: Dockerhub Login
+        uses: docker/login-action@v2.2.0
+        with:
+          username: ${{vars.DOCKERHUB_USERNAME}}
+          password: ${{secrets.DOCKERHUB_PASSWORD}}
 
-            - name: Docker Build For Testing
-              uses: docker/build-push-action@v4
-              with:
-                  context: .
-                  push: false
-                  tags: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
+      - name: GHCR Login
+        uses: docker/login-action@v2.2.0
+        with:
+          username: ${{github.owner}}
+          password: ${{secrets.GITHUB_TOKEN}}
 
-            - name: Docker Image Testing
-              run: |
-                  docker images
-                  docker run --name solar-system-app -d \
-                      -p 3000:3000 \
-                      -e MONGO_URI=$MONGO_URI \
-                      -e MONGO_USERNAME=$MONGO_USERNAME \
-                      -e MONGO_PASSWORD=${{secrets.MONGO_PASSWORD}} \
-                      ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
+      - name: Docker Build For Testing
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
 
-                  export IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' solar-system-app)
-                  echo $IP
+      - name: Docker Image Testing
+        run: |
+          docker images
+          docker run --name solar-system-app -d \
+              -p 3000:3000 \
+              -e MONGO_URI=$MONGO_URI \
+              -e MONGO_USERNAME=$MONGO_USERNAME \
+              -e MONGO_PASSWORD=${{secrets.MONGO_PASSWORD}} \
+              ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
 
-                  echo Testing Image URL using wget
-                  wget -q -O - 127.0.0.1:3000/live | grep live
+          export IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' solar-system-app)
+          echo $IP
 
-            - name: Docker push to Dockerhub
-              uses: docker/build-push-action@v4
-              with:
-                  context: .
-                  push: true
-                  tags: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
+          echo Testing Image URL using wget
+          wget -q -O - 127.0.0.1:3000/live | grep live
+
+      - name: Docker push to Dockerhub
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/solar-system:${{ github.sha }}
